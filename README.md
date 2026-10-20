@@ -38,4 +38,4 @@ Hay un ejemplo en `.env.example`.
 
 `unirse`, `instrumento:agregar`, `instrumento:editar`, `instrumento:mover`, `instrumento:eliminar`, `tempo:cambiar` y `escala:cambiar`. Al desconectarse un tripulante, sus instrumentos se eliminan.
 
-Cada instrumento llega con un patrón por defecto que suena de inmediato. En la percusión el patrón es encendido/apagado por paso; en la armonía y la melodía guarda grados de la escala (0 a 6), así se reinterpreta solo cuando cambia la escala. Los parámetros se validan por rango (ver `ESQUEMA` en `sala.js`).
+Cada instrumento llega con un patrón por defecto que suena de inmediato. En la percusión el patrón es encendido/apagado por paso; en la armonía y la melodía guarda grados de la escala (0 a 6), así se reinterpreta solo cuando cambia la escala. Los parámetros se validan por rango (ver `ESQUEMA` en `sala.js`), incluidos la resonancia del filtro y los envíos a la reverb y al delay.

@@ -84,6 +84,11 @@ const esperar = (s, evento) => new Promise((resolve) => s.once(evento, resolve))
   const arm2 = (await pedir(b, 'instrumento:editar', { id: arm.id, parametros: { acorde: 'septima', inversion: 1.6 } })).instrumento;
   revisar(arm2.parametros.acorde === 'septima' && arm2.parametros.inversion === 2, 'acorde séptima e inversión entera');
   revisar(!(await pedir(a, 'instrumento:editar', { id: mel.id, patron: [0] })).ok, 'A no puede editar la melodía de B');
+  // V3: resonancia y envíos a efectos
+  revisar(arm.parametros.resonancia === 1 && arm.parametros.envioReverb === 0.45, 'armonía trae resonancia y envío de reverb');
+  revisar(perc2.parametros.envioDelay === 0.15 && !('resonancia' in perc2.parametros), 'la percusión trae envíos pero no resonancia');
+  const mel4 = (await pedir(b, 'instrumento:editar', { id: mel.id, parametros: { resonancia: 50, envioReverb: 0.8, envioDelay: -2 } })).instrumento;
+  revisar(mel4.parametros.resonancia === 18 && mel4.parametros.envioReverb === 0.8 && mel4.parametros.envioDelay === 0, 'resonancia y envíos se recortan a su rango');
   for (const i of [perc2, arm, mel]) await pedir(b, 'instrumento:eliminar', { id: i.id });
 
   const inst2 = (await pedir(a, 'instrumento:agregar', { tipo: 'melodia' })).instrumento;

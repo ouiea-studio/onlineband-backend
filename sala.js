@@ -15,10 +15,11 @@ const GRADOS = 7; // filas de la cuadrícula de armonía y melodía: grados 0 a 
 // Parámetros por tipo de instrumento: una lista de opciones o un rango [mínimo, máximo].
 // Lo que llegue fuera de rango se recorta; las claves desconocidas se ignoran.
 const ADSR = { ataque: [0.001, 2], decaimiento: [0.01, 2], sostenido: [0, 1], relajacion: [0.01, 4] };
+const ENVIOS = { envioReverb: [0, 1], envioDelay: [0, 1] }; // envío a la reverb y al delay compartidos
 const ESQUEMA = {
-  percusion: { sonido: ['kick', 'snare', 'hat', 'perc'], pitch: [-12, 12], decay: [0.02, 1.5], volumen: [0, 1] },
-  armonia: { acorde: ['triada', 'septima', 'sus'], inversion: [0, 2], ...ADSR, cutoff: [100, 12000], volumen: [0, 1] },
-  melodia: { ...ADSR, cutoff: [100, 12000], glide: [0, 0.5], volumen: [0, 1] },
+  percusion: { sonido: ['kick', 'snare', 'hat', 'perc'], pitch: [-12, 12], decay: [0.02, 1.5], volumen: [0, 1], ...ENVIOS },
+  armonia: { acorde: ['triada', 'septima', 'sus'], inversion: [0, 2], ...ADSR, cutoff: [100, 12000], resonancia: [0.1, 18], volumen: [0, 1], ...ENVIOS },
+  melodia: { ...ADSR, cutoff: [100, 12000], resonancia: [0.1, 18], glide: [0, 0.5], volumen: [0, 1], ...ENVIOS },
 };
 const ENTEROS = new Set(['inversion', 'pitch']);
 
@@ -26,6 +27,12 @@ const ENTEROS = new Set(['inversion', 'pitch']);
 // La percusión rota entre kick, hat, snare y perc según cuántas haya ya en la sala.
 const SONIDOS_EN_ORDEN = ['kick', 'hat', 'snare', 'perc'];
 const DECAY_PERC = { kick: 0.4, snare: 0.18, hat: 0.05, perc: 0.25 };
+const ENVIOS_PERC = { // el kick queda seco; snare, hat y perc con algo de espacio
+  kick: { envioReverb: 0.05, envioDelay: 0 },
+  snare: { envioReverb: 0.25, envioDelay: 0.1 },
+  hat: { envioReverb: 0.1, envioDelay: 0.15 },
+  perc: { envioReverb: 0.2, envioDelay: 0.3 },
+};
 const PATRON_PERC = { // x = golpe, en 16 semicorcheas (un compás)
   kick: 'x...x...x...x...',
   hat: '..x...x...x...x.',
@@ -37,12 +44,12 @@ const POR_DEFECTO = {
   armonia: () => ({ // i – VI – iv – v en corcheas: un acorde cada medio compás, dos compases
     pasos: 16, subdivision: 'corchea',
     patron: [0, _, _, _, 5, _, _, _, 3, _, _, _, 4, _, _, _],
-    parametros: { acorde: 'triada', inversion: 0, ataque: 0.08, decaimiento: 0.4, sostenido: 0.5, relajacion: 1.2, cutoff: 1800, volumen: 0.7 },
+    parametros: { acorde: 'triada', inversion: 0, ataque: 0.08, decaimiento: 0.4, sostenido: 0.5, relajacion: 1.2, cutoff: 1800, resonancia: 1, volumen: 0.7, envioReverb: 0.45, envioDelay: 0.15 },
   }),
   melodia: () => ({ // arpegio en semicorcheas que sigue los acordes de la armonía, dos compases
     pasos: 32, subdivision: 'semicorchea',
     patron: [4, _, 2, _, 0, _, 2, 4, 5, _, 4, _, 2, _, 0, _, 3, _, 5, _, 0, _, 5, 3, 4, _, 6, _, 1, _, 6, 4],
-    parametros: { ataque: 0.01, decaimiento: 0.25, sostenido: 0.4, relajacion: 0.3, cutoff: 2500, glide: 0.05, volumen: 0.7 },
+    parametros: { ataque: 0.01, decaimiento: 0.25, sostenido: 0.4, relajacion: 0.3, cutoff: 2500, resonancia: 2, glide: 0.05, volumen: 0.7, envioReverb: 0.3, envioDelay: 0.3 },
   }),
   percusion: () => {
     const cuantas = estado.instrumentos.filter((i) => i.tipo === 'percusion').length;
@@ -50,7 +57,7 @@ const POR_DEFECTO = {
     return {
       pasos: 16, subdivision: 'semicorchea',
       patron: [...PATRON_PERC[sonido]].map((c) => c === 'x'),
-      parametros: { sonido, pitch: 0, decay: DECAY_PERC[sonido], volumen: 0.8 },
+      parametros: { sonido, pitch: 0, decay: DECAY_PERC[sonido], volumen: 0.8, ...ENVIOS_PERC[sonido] },
     };
   },
 };
