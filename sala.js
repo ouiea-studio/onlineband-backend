@@ -10,18 +10,48 @@ const RADIO_MAX = 12; // las piezas no pueden salir de este radio
 const TEMPO_MIN = 40;
 const TEMPO_MAX = 240;
 
-// Parámetros básicos por tipo de instrumento (ver CLAUDE.md).
-const PARAMETROS_BASE = {
-  percusion: { sonido: 'kick', pitch: 0, decay: 0.3, volumen: 0.8 },
-  armonia: {
-    acorde: 'triada', inversion: 0,
-    ataque: 0.05, decaimiento: 0.3, sostenido: 0.6, relajacion: 0.8,
-    cutoff: 2000, volumen: 0.7,
-  },
-  melodia: {
-    notas: [0, 2, 4, 2], // grados dentro de la escala global
-    ataque: 0.01, decaimiento: 0.2, sostenido: 0.5, relajacion: 0.4,
-    cutoff: 3000, glide: 0, volumen: 0.7,
+const GRADOS = 7; // filas de la cuadrícula de armonía y melodía: grados 0 a 6 de la escala global
+
+// Parámetros por tipo de instrumento: una lista de opciones o un rango [mínimo, máximo].
+// Lo que llegue fuera de rango se recorta; las claves desconocidas se ignoran.
+const ADSR = { ataque: [0.001, 2], decaimiento: [0.01, 2], sostenido: [0, 1], relajacion: [0.01, 4] };
+const ESQUEMA = {
+  percusion: { sonido: ['kick', 'snare', 'hat', 'perc'], pitch: [-12, 12], decay: [0.02, 1.5], volumen: [0, 1] },
+  armonia: { acorde: ['triada', 'septima', 'sus'], inversion: [0, 2], ...ADSR, cutoff: [100, 12000], volumen: [0, 1] },
+  melodia: { ...ADSR, cutoff: [100, 12000], glide: [0, 0.5], volumen: [0, 1] },
+};
+const ENTEROS = new Set(['inversion', 'pitch']);
+
+// Valores por defecto: cada módulo suena bien en cuanto se acopla.
+// La percusión rota entre kick, hat, snare y perc según cuántas haya ya en la sala.
+const SONIDOS_EN_ORDEN = ['kick', 'hat', 'snare', 'perc'];
+const DECAY_PERC = { kick: 0.4, snare: 0.18, hat: 0.05, perc: 0.25 };
+const PATRON_PERC = { // x = golpe, en 16 semicorcheas (un compás)
+  kick: 'x...x...x...x...',
+  hat: '..x...x...x...x.',
+  snare: '....x.......x...',
+  perc: '...x..x....x.x..',
+};
+const _ = null; // paso sin nota
+const POR_DEFECTO = {
+  armonia: () => ({ // i – VI – iv – v en corcheas: un acorde cada medio compás, dos compases
+    pasos: 16, subdivision: 'corchea',
+    patron: [0, _, _, _, 5, _, _, _, 3, _, _, _, 4, _, _, _],
+    parametros: { acorde: 'triada', inversion: 0, ataque: 0.08, decaimiento: 0.4, sostenido: 0.5, relajacion: 1.2, cutoff: 1800, volumen: 0.7 },
+  }),
+  melodia: () => ({ // arpegio en semicorcheas que sigue los acordes de la armonía, dos compases
+    pasos: 32, subdivision: 'semicorchea',
+    patron: [4, _, 2, _, 0, _, 2, 4, 5, _, 4, _, 2, _, 0, _, 3, _, 5, _, 0, _, 5, 3, 4, _, 6, _, 1, _, 6, 4],
+    parametros: { ataque: 0.01, decaimiento: 0.25, sostenido: 0.4, relajacion: 0.3, cutoff: 2500, glide: 0.05, volumen: 0.7 },
+  }),
+  percusion: () => {
+    const cuantas = estado.instrumentos.filter((i) => i.tipo === 'percusion').length;
+    const sonido = SONIDOS_EN_ORDEN[cuantas % SONIDOS_EN_ORDEN.length];
+    return {
+      pasos: 16, subdivision: 'semicorchea',
+      patron: [...PATRON_PERC[sonido]].map((c) => c === 'x'),
+      parametros: { sonido, pitch: 0, decay: DECAY_PERC[sonido], volumen: 0.8 },
+    };
   },
 };
 
@@ -106,27 +136,38 @@ function validarPasos(pasos) {
   return n;
 }
 
-// Ajusta el patrón al número de pasos: recorta o rellena con false.
-function ajustarPatron(patron, pasos) {
-  const base = Array.isArray(patron) ? patron.map(Boolean) : [];
-  return Array.from({ length: pasos }, (_, i) => base[i] || false);
+// Un paso del patrón. Percusión: encendido/apagado. Armonía y melodía: un grado (0 a 6) o null.
+function limpiarPaso(tipo, valor) {
+  if (tipo === 'percusion') return Boolean(valor);
+  if (valor === null || valor === undefined || valor === false) return null;
+  const g = Number(valor);
+  return Number.isInteger(g) && g >= 0 && g < GRADOS ? g : null;
 }
 
-// Solo acepta claves conocidas y del mismo tipo que el valor por defecto.
-function mezclarParametros(actuales, cambios) {
+// Ajusta el patrón al número de pasos. Si se da un patrón nuevo, se recorta o se rellena
+// con silencio; si solo cambia el número de pasos, el patrón actual se repite para llenar.
+function ajustarPatron(tipo, patron, pasos, repetir = false) {
+  const base = Array.isArray(patron) ? patron.map((v) => limpiarPaso(tipo, v)) : [];
+  const vacio = tipo === 'percusion' ? false : null;
+  return Array.from({ length: pasos }, (_, i) => {
+    if (i < base.length) return base[i];
+    return repetir && base.length ? base[i % base.length] : vacio;
+  });
+}
+
+// Aplica los cambios de parámetros según ESQUEMA: opciones válidas y números dentro de su rango.
+function mezclarParametros(tipo, actuales, cambios) {
   if (!cambios || typeof cambios !== 'object') return actuales;
   const resultado = { ...actuales };
   for (const [clave, valor] of Object.entries(cambios)) {
-    if (!(clave in actuales)) continue;
-    const base = actuales[clave];
-    if (Array.isArray(base)) {
-      if (Array.isArray(valor) && valor.every((v) => Number.isFinite(Number(v)))) {
-        resultado[clave] = valor.map(Number);
-      }
-    } else if (typeof base === 'number') {
-      if (Number.isFinite(Number(valor))) resultado[clave] = Number(valor);
-    } else if (typeof base === typeof valor) {
-      resultado[clave] = valor;
+    const regla = ESQUEMA[tipo][clave];
+    if (!regla) continue;
+    if (typeof regla[0] === 'string') {
+      if (regla.includes(valor)) resultado[clave] = valor;
+    } else if (valor !== null && valor !== '' && Number.isFinite(Number(valor))) {
+      let n = Math.min(regla[1], Math.max(regla[0], Number(valor)));
+      if (ENTEROS.has(clave)) n = Math.round(n);
+      resultado[clave] = n;
     }
   }
   return resultado;
@@ -143,7 +184,9 @@ function buscarPropio(duenoId, id) {
 
 function agregarInstrumento(duenoId, datos) {
   if (!TIPOS.includes(datos.tipo)) throw new Error('tipo debe ser percusion, armonia o melodia');
-  const pasos = datos.pasos === undefined ? 16 : validarPasos(datos.pasos);
+  const tipo = datos.tipo;
+  const base = POR_DEFECTO[tipo]();
+  const pasos = datos.pasos === undefined ? base.pasos : validarPasos(datos.pasos);
   const { x, z } = limitarAlRadio(
     datos.x === undefined ? 0 : numero(datos.x, 'x'),
     datos.z === undefined ? 0 : numero(datos.z, 'z'),
@@ -151,14 +194,14 @@ function agregarInstrumento(duenoId, datos) {
   contadorInstrumentos += 1;
   const instrumento = {
     id: 'inst-' + contadorInstrumentos,
-    tipo: datos.tipo,
+    tipo,
     dueno: duenoId,
     x,
     z,
     pasos,
-    subdivision: SUBDIVISIONES.includes(datos.subdivision) ? datos.subdivision : 'semicorchea',
-    patron: ajustarPatron(datos.patron, pasos),
-    parametros: mezclarParametros(structuredClone(PARAMETROS_BASE[datos.tipo]), datos.parametros),
+    subdivision: SUBDIVISIONES.includes(datos.subdivision) ? datos.subdivision : base.subdivision,
+    patron: ajustarPatron(tipo, datos.patron !== undefined ? datos.patron : base.patron, pasos, datos.patron === undefined),
+    parametros: mezclarParametros(tipo, base.parametros, datos.parametros),
   };
   estado.instrumentos.push(instrumento);
   return instrumento;
@@ -172,11 +215,14 @@ function editarInstrumento(duenoId, id, cambios) {
     if (!SUBDIVISIONES.includes(cambios.subdivision)) throw new Error('subdivisión no válida');
     instrumento.subdivision = cambios.subdivision;
   }
+  const patronNuevo = cambios.patron !== undefined;
   instrumento.patron = ajustarPatron(
-    cambios.patron !== undefined ? cambios.patron : instrumento.patron,
+    instrumento.tipo,
+    patronNuevo ? cambios.patron : instrumento.patron,
     instrumento.pasos,
+    !patronNuevo,
   );
-  instrumento.parametros = mezclarParametros(instrumento.parametros, cambios.parametros);
+  instrumento.parametros = mezclarParametros(instrumento.tipo, instrumento.parametros, cambios.parametros);
   return instrumento;
 }
 

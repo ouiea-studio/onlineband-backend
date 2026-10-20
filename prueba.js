@@ -69,6 +69,23 @@ const esperar = (s, evento) => new Promise((resolve) => s.once(evento, resolve))
   const escala = await pedir(b, 'escala:cambiar', { tonica: 'D', modo: 'dorico' });
   revisar(escala.ok && escala.escala.tonica === 'D', 'B cambia la escala a D dórico');
 
+  // V2: patrones por defecto, grados de la escala y parámetros con rango
+  const perc2 = (await pedir(b, 'instrumento:agregar', { tipo: 'percusion' })).instrumento;
+  revisar(perc2.parametros.sonido === 'hat' && perc2.patron.filter(Boolean).length === 4, 'la segunda percusión llega como hat con su patrón');
+  const arm = (await pedir(b, 'instrumento:agregar', { tipo: 'armonia' })).instrumento;
+  revisar(arm.pasos === 16 && arm.subdivision === 'corchea' && arm.patron.join() === '0,,,,5,,,,3,,,,4,,,', 'armonía por defecto: i–VI–iv–v en corcheas');
+  const mel = (await pedir(b, 'instrumento:agregar', { tipo: 'melodia' })).instrumento;
+  revisar(mel.pasos === 32 && mel.patron.filter((g) => g !== null).length === 19, 'melodía por defecto: 32 semicorcheas');
+  const mel2 = (await pedir(b, 'instrumento:editar', { id: mel.id, pasos: 4, patron: [6, 7, 'x', null, 2], parametros: { volumen: 5, glide: -1 } })).instrumento;
+  revisar(mel2.patron.join() === '6,,,', 'grados fuera de 0–6 se vuelven silencio');
+  revisar(mel2.parametros.volumen === 1 && mel2.parametros.glide === 0, 'parámetros fuera de rango se recortan');
+  const mel3 = (await pedir(b, 'instrumento:editar', { id: mel.id, pasos: 8 })).instrumento;
+  revisar(mel3.patron.join() === '6,,,,6,,,', 'al subir los pasos el patrón se repite');
+  const arm2 = (await pedir(b, 'instrumento:editar', { id: arm.id, parametros: { acorde: 'septima', inversion: 1.6 } })).instrumento;
+  revisar(arm2.parametros.acorde === 'septima' && arm2.parametros.inversion === 2, 'acorde séptima e inversión entera');
+  revisar(!(await pedir(a, 'instrumento:editar', { id: mel.id, patron: [0] })).ok, 'A no puede editar la melodía de B');
+  for (const i of [perc2, arm, mel]) await pedir(b, 'instrumento:eliminar', { id: i.id });
+
   const inst2 = (await pedir(a, 'instrumento:agregar', { tipo: 'melodia' })).instrumento;
   const borradoA = await pedir(a, 'instrumento:eliminar', { id: inst2.id });
   revisar(borradoA.ok, 'A elimina su propio instrumento');
